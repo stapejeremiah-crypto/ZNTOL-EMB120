@@ -1,5 +1,5 @@
 # emb120_zntol_streamlit.py
-# Curve-fitted high/low MSA AFM data + recalibrated correction for latest tests
+# Curve-fitted high/low MSA AFM data + recalibrated correction for current test results
 
 import streamlit as st
 import numpy as np
@@ -36,15 +36,15 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
-# Recalibrated adjustment parameters for your latest test results
+# Recalibrated adjustment parameters for your current test results
 adjust_params = {
-    -10: {'slope': -0.035, 'intercept': 1000.0},
-    -5:  {'slope': -0.065, 'intercept': 1300.0},
-    0:   {'slope': -0.035, 'intercept': 700.0},
-    5:   {'slope': -0.010, 'intercept': 200.0},
-    10:  {'slope': -0.005, 'intercept': 100.0},
-    15:  {'slope': -0.012, 'intercept': -240.0},
-    20:  {'slope': -0.038, 'intercept': -720.0}
+    -10: {'slope': -0.020, 'intercept': 1400.0},
+    -5:  {'slope': -0.040, 'intercept': 1600.0},
+    0:   {'slope': -0.030, 'intercept': 800.0},
+    5:   {'slope': -0.012, 'intercept': 300.0},
+    10:  {'slope': -0.008, 'intercept': 150.0},
+    15:  {'slope': -0.020, 'intercept': -400.0},
+    20:  {'slope': -0.050, 'intercept': -950.0}
 }
 
 # ────────────────────────────────────────────────
@@ -85,14 +85,17 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     else:
         effective_msa = msa
 
-    # No hard cold cap - use curve fit with cold bias
-    isa_clamp = np.clip(isa_dev, 0, 20)  # clamp to available data for curve
+    # Use closest ISA for cold cases (no hard clamp to 0)
+    isa_clamp = np.clip(isa_dev, min(high_isa_grid), max(high_isa_grid))
     source = "curve fit" if isa_dev == isa_clamp else f"curve fit (clamped ISA {isa_clamp}°C)"
 
     points = {}
+
+    # Add low data if available
     if isa_clamp in low_data:
         points.update(low_data[isa_clamp])
 
+    # Add high data (full for cold ISAs)
     row_idx = np.where(high_isa_grid == isa_clamp)[0]
     if len(row_idx) > 0:
         for col_idx, msa_high in enumerate(high_msa_grid):
@@ -112,18 +115,18 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 
     w_obstacle_max = poly(effective_msa)
 
-    # Apply correction - stronger for cold
+    # Apply correction
     corr_slope = get_adjust_param(isa_clamp, 'slope')
     corr_int = get_adjust_param(isa_clamp, 'intercept')
     correction = corr_slope * effective_msa + corr_int
     w_obstacle_max += correction
     source += " (with test adjustment)"
 
-    # Special low-MSA boost for cold cases
+    # Boost for cold/low MSA to reach structural max
     if isa_dev <= -5 and effective_msa < 12000:
-        w_obstacle_max += 400  # push toward 26,433 lbs
+        w_obstacle_max += 800
 
-    # High-MSA cap for cold cases
+    # Pull-down for high MSA in cold
     if isa_dev <= -5 and effective_msa > 18000:
         w_obstacle_max = min(w_obstacle_max, 24000)
 
@@ -148,11 +151,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted + recalibrated correction • No hard cold cap • Low-alt boost for cold")
+st.caption("Curve-fitted + recalibrated correction • Cold cases use full high-alt data • Larger low-alt boost")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Latest tuning: removed hard cold cap, added low-MSA boost for cold cases.")
+    st.markdown("Enter values at the highest enroute obstacle. Updated tuning: uses high-alt table for cold ISAs, increased low-MSA boost for cold cases.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -182,9 +185,10 @@ if st.button("Calculate ZNTOL", type="primary"):
 with st.expander("Assumptions & Tuning"):
     st.markdown("""
     - Quadratic curve fit to merged AFM data
-    - Linear correction tuned to your latest test data
-    - No hard 25,000 lbs cap for cold ISAs - uses curve + adjustment
-    - Extra boost (+400 lbs) for cold cases at low MSA to reach closer to 26,433 lbs
+    - Linear correction recalibrated to your latest test data
+    - Cold cases (ISA ≤ -5 °C) use full high-alt table data (no clamp to 0 °C)
+    - Larger low-MSA boost (+800 lbs) for cold cases <12,000 ft effective MSA
+    - High-MSA pull-down in cold cases
     - Effective MSA = entered - 1,000 ft if >6,000 ft
     - Structural MTOW cap = 26,433 lbs
     """)
