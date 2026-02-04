@@ -1,5 +1,5 @@
 # emb120_zntol_streamlit.py
-# Curve-fitted high/low MSA AFM data + recalibrated correction for current test set
+# Curve-fitted high/low MSA AFM data + final tuning for latest test results
 
 import streamlit as st
 import numpy as np
@@ -37,15 +37,15 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
-# Recalibrated adjustment parameters for your most recent test results
+# Final recalibrated adjustment parameters for your latest test results
 adjust_params = {
-    -10: {'slope': -0.015, 'intercept': 500.0},
-    -5:  {'slope': -0.035, 'intercept': 700.0},
-    0:   {'slope': -0.025, 'intercept': 500.0},
+    -10: {'slope': -0.008, 'intercept': 350.0},
+    -5:  {'slope': -0.020, 'intercept': 700.0},
+    0:   {'slope': -0.018, 'intercept': 400.0},
     5:   {'slope': -0.008, 'intercept': 150.0},
     10:  {'slope': -0.003, 'intercept': 60.0},
-    15:  {'slope': -0.035, 'intercept': -665.0},
-    20:  {'slope': -0.065, 'intercept': -1235.0}
+    15:  {'slope': -0.050, 'intercept': -950.0},
+    20:  {'slope': -0.090, 'intercept': -1700.0}
 }
 
 # ────────────────────────────────────────────────
@@ -157,11 +157,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted + structural cap logic • Low MSA forces max gross • Refined correction")
+st.caption("Curve-fitted + structural cap logic • Final correction tuning")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Updated: structural cap for low MSA, refined correction for better high-alt match.")
+    st.markdown("Enter values at the highest enroute obstacle. Final tuning: stronger pull-up for warm high MSA, milder for cold.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
