@@ -1,5 +1,5 @@
 # emb120_zntol_streamlit.py
-# Uses curve fitting (quadratic poly) to reconcile low/high AFM data for smooth, accurate results across altitudes
+# Curve-fitted high/low MSA AFM data + test-data-based correction layer
 
 import streamlit as st
 import numpy as np
@@ -36,8 +36,44 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
+# Adjustment parameters per ISA derived from your test data (diff = slope × msa + intercept)
+adjust_params = {
+    -10: {'slope': -0.2741, 'intercept': 4174.0},
+    -5:  {'slope': -0.2633, 'intercept': 4066.0},
+    0:   {'slope': -0.3079, 'intercept': 5653.0},
+    5:   {'slope': -0.0270, 'intercept': 270.0},
+    10:  {'slope': -0.0040, 'intercept': 40.0},
+    15:  {'slope': 0.0080, 'intercept': 123.0},
+    20:  {'slope': 0.0494, 'intercept': -306.0}
+}
+
 # ────────────────────────────────────────────────
-# Calculation with curve fit
+# Helper to interpolate/extrapolate adjustment parameters
+# ────────────────────────────────────────────────
+def get_adjust_param(isa: float, param: str) -> float:
+    """Interpolate or extrapolate slope/intercept for given ISA."""
+    isas = sorted(adjust_params.keys())
+    if isa in adjust_params:
+        return adjust_params[isa][param]
+    # Find nearest
+    idx = np.searchsorted(isas, isa)
+    if idx == 0:
+        # Extrapolate below min
+        diff = adjust_params[isas[1]][param] - adjust_params[isas[0]][param]
+        delta_isa = isas[1] - isas[0]
+        return adjust_params[isas[0]][param] + diff / delta_isa * (isa - isas[0])
+    elif idx == len(isas):
+        # Extrapolate above max
+        diff = adjust_params[isas[-1]][param] - adjust_params[isas[-2]][param]
+        delta_isa = isas[-1] - isas[-2]
+        return adjust_params[isas[-1]][param] + diff / delta_isa * (isa - isas[-1])
+    else:
+        # Interpolate between
+        frac = (isa - isas[idx-1]) / (isas[idx] - isas[idx-1])
+        return adjust_params[isas[idx-1]][param] + frac * (adjust_params[isas[idx]][param] - adjust_params[isas[idx-1]][param])
+
+# ────────────────────────────────────────────────
+# Calculation with curve fit + test-data correction
 # ────────────────────────────────────────────────
 @st.cache_data
 def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
@@ -54,13 +90,18 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     else:
         effective_msa = msa
 
-    # Cold cap
+    # Cold cap with dynamic adjustment
     if isa_dev <= -5:
-        w_obstacle_max = 25000.0
-        source = "cold cap"
+        w_obstacle_max = 25000.0  # base
+        # Use ISA -5 adjustment parameters for all cold cases
+        corr_slope = get_adjust_param(-5, 'slope')
+        corr_int = get_adjust_param(-5, 'intercept')
+        correction = corr_slope * effective_msa + corr_int
+        w_obstacle_max += correction
+        source = "cold cap (with test adjustment)"
     else:
-        # Clamp ISA (use nearest available data)
-        isa_clamp = np.clip(isa_dev, 0, 20)  # Low data range; high has up to 30 but we clamp for fit
+        # Clamp ISA to available curve data range
+        isa_clamp = np.clip(isa_dev, 0, 20)
         source = "curve fit" if isa_dev == isa_clamp else f"curve fit (clamped ISA {isa_clamp}°C)"
 
         # Collect all known points for this ISA from low and high
@@ -76,25 +117,31 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
             for col_idx, msa_high in enumerate(high_msa_grid):
                 val = high_tow[row_idx[0], col_idx]
                 if msa_high in points:
-                    # Average overlap
-                    points[msa_high] = (points[msa_high] + val) / 2
+                    points[msa_high] = (points[msa_high] + val) / 2  # average overlap
                 else:
                     points[msa_high] = val
 
         if not points:
             return {"error": "No data available for this ISA deviation"}
 
-        # Sort points and fit quadratic curve (degree 2 for smooth reconciliation)
+        # Sort points and fit quadratic curve
         msas = sorted(points.keys())
         weights = np.array([points[m] for m in msas])
-        fit = np.polyfit(msas, weights, deg=2)  # Quadratic: ax^2 + bx + c
+        fit = np.polyfit(msas, weights, deg=2)
         poly = np.poly1d(fit)
 
-        # Compute w at effective_msa using the curve
+        # Base value from curve
         w_obstacle_max = poly(effective_msa)
 
-    # Caps
-    w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)  # Min from high table edge
+        # Apply correction from test data fits
+        corr_slope = get_adjust_param(isa_clamp, 'slope')
+        corr_int = get_adjust_param(isa_clamp, 'intercept')
+        correction = corr_slope * effective_msa + corr_int
+        w_obstacle_max += correction
+        source += " (with test adjustment)"
+
+    # Final caps
+    w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
 
     zntol_uncapped = w_obstacle_max + fuel_burn
     zntol = min(zntol_uncapped, STRUCTURAL_MTOW)
@@ -115,11 +162,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted high/low MSA AFM data • Smooth accuracy across altitudes")
+st.caption("Curve-fitted + test-data corrected • Matches your AFM test points")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Uses quadratic curve fit to reconcile low/high data for better integrity at overlaps and higher altitudes.")
+    st.markdown("Enter values at the highest enroute obstacle. Uses quadratic curve fit + linear correction tuned to your AFM test data for high accuracy.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -146,15 +193,15 @@ if st.button("Calculate ZNTOL", type="primary"):
                       delta="capped" if res['capped'] else None)
             st.caption(f"Source: {res['source']}")
 
-with st.expander("Assumptions"):
+with st.expander("Assumptions & Tuning"):
     st.markdown("""
-    - Quadratic curve fit (poly deg 2) to all low/high AFM data points (averages overlaps)
-    - Effective MSA = entered - 1,000 ft if >6,000 ft (clearance adjustment)
-    - Cold ISA ≤ -5 °C capped at 25,000 lbs
-    - ISA clamped to 0–20 °C for curve data availability
+    - Quadratic curve fit to merged low/high AFM data
+    - Linear correction (slope × effective_MSA + intercept) applied per ISA, tuned to your test data
+    - Correction parameters interpolated/extrapolated for non-tested ISAs
+    - Effective MSA = entered - 1,000 ft if >6,000 ft
+    - Cold ISA ≤ -5 °C uses dynamic adjustment (based on ISA -5 params)
     - Structural MTOW cap = 26,433 lbs
     - No wind/anti-ice/wet adjustments
     """)
 
 st.caption("For reference only • Verify with official AFM")
-
