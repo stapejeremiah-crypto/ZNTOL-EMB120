@@ -85,7 +85,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
             return {"error": "No data available for this ISA deviation"}
 
         # Sort points and fit quadratic curve (degree 2 for smooth reconciliation)
-        msas = np.sorted(list(points.keys()))
+        msas = sorted(points.keys())
         weights = np.array([points[m] for m in msas])
         fit = np.polyfit(msas, weights, deg=2)  # Quadratic: ax^2 + bx + c
         poly = np.poly1d(fit)
@@ -157,3 +157,4 @@ with st.expander("Assumptions"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
