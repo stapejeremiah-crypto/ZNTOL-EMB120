@@ -124,8 +124,8 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         # Apply correction
         corr_slope = get_adjust_param(isa_clamp, 'slope')
         corr_int = get_adjust_param(isa_clamp, 'intercept')
-        correction = corr_slope * effective_msa + corr_int
-        w_obstacle_max += correction
+        # correction = corr_slope * effective_msa + corr_int
+        # w_obstacle_max += correction
         source += " (with test adjustment)"
 
     # Boost for cold/low MSA to reach max gross
@@ -198,5 +198,6 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
 
 
