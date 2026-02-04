@@ -48,6 +48,8 @@ adjust_params = {
     20:  {'slope': -0.090, 'intercept': -1700.0}
 }
 
+st.write("DEBUG: Cold slope for ISA -10 =", adjust_params[-10]['slope'])
+
 # ────────────────────────────────────────────────
 # Helper to interpolate/extrapolate adjustment parameters
 # ────────────────────────────────────────────────
@@ -198,3 +200,4 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
