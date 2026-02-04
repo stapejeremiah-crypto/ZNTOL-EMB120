@@ -1,75 +1,34 @@
 # emb120_zntol_streamlit.py
-# Curve-fitted high/low MSA AFM data + final tuning for latest test results
+# Linear interpolation from merged table points + structural cap
 
 import streamlit as st
 import numpy as np
+from scipy.interpolate import interp1d
 
 # ────────────────────────────────────────────────
-# Data from low-alt screenshot and high-alt original chart
+# Merged table data (MSA: weight for each ISA)
 # ────────────────────────────────────────────────
 STRUCTURAL_MTOW = 26433
 MIN_MSA = 8000
-STRUCTURAL_MSA_THRESHOLD = 15000  # ft - below this, often structural limit in AFM
+STRUCTURAL_MSA_THRESHOLD = 15000  # below this → structural limit
 
-# Low-alt data (from screenshot): dict of ISA: dict of MSA: weight
-low_data = {
-    0: {23000: 19350, 22000: 20100, 20000: 21550, 18000: 23000, 16000: 24550},
-    5: {22000: 19350, 20000: 20750, 18000: 22200, 16000: 23700, 14000: 25200, 12000: 26433},
-    10: {20000: 20000, 18000: 21450, 16000: 22950, 14000: 24400, 12000: 25750, 10000: 26433},
-    15: {20000: 19300, 18000: 20650, 16000: 22000, 14000: 23450, 12000: 24850, 10000: 26433},
-    20: {18000: 19900, 16000: 21200, 14000: 22500, 12000: 23950, 10000: 25300, 8000: 26433}
-}
-
-# High-alt data: ISA grid, MSA grid, TOW array
-high_isa_grid = np.array([-20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30])
-high_msa_grid = np.array([19000, 20000, 21000, 22000, 23000, 24000, 25000, 26000])
-high_tow = np.array([
-    [25000] * 8,
-    [25000] * 8,
-    [25000] * 8,
-    [24600, 23100, 21700, 20300, 19000, 17700, 16400, 15100],
-    [23600, 22200, 20800, 19400, 18000, 16700, 15400, 14100],
-    [22600, 21100, 19700, 18300, 17000, 15700, 14300, 13000],
-    [21600, 20000, 18600, 17200, 15900, 14500, 13100, 11700],
-    [20600, 19000, 17500, 16000, 14700, 13300, 11900, 10400],
-    [19400, 17900, 16300, 14900, 13200, 11800, 10400, 8800],
-    [18200, 16600, 15000, 13500, 12000, 10400, 8700, 6900],
-    [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
-])
-
-# FINAL recalibrated adjustment parameters (milder for cold, stronger for warm)
-adjust_params = {
-    -10: {'slope': -0.008, 'intercept': 350.0},
-    -5:  {'slope': -0.020, 'intercept': 700.0},
-    0:   {'slope': -0.018, 'intercept': 400.0},
-    5:   {'slope': -0.008, 'intercept': 150.0},
-    10:  {'slope': -0.003, 'intercept': 60.0},
-    15:  {'slope': -0.050, 'intercept': -950.0},
-    20:  {'slope': -0.090, 'intercept': -1700.0}
+# All known points: ISA → {MSA: weight}
+all_points = {
+    -20: {m: 25000 for m in [19000,20000,21000,22000,23000,24000,25000,26000]},
+    -15: {m: 25000 for m in [19000,20000,21000,22000,23000,24000,25000,26000]},
+    -10: {m: 25000 for m in [19000,20000,21000,22000,23000,24000,25000,26000]},
+    -5: {19000:24600, 20000:23100, 21000:21700, 22000:20300, 23000:19000, 24000:17700, 25000:16400, 26000:15100},
+    0: {19000:23600, 20000:22200, 21000:20800, 22000:19400, 23000:18000, 24000:16700, 25000:15400, 26000:14100, 23000:19350, 22000:20100, 20000:21550, 18000:23000, 16000:24550},
+    5: {19000:22600, 20000:21100, 21000:19700, 22000:18300, 23000:17000, 24000:15700, 25000:14300, 26000:13000, 22000:19350, 20000:20750, 18000:22200, 16000:23700, 14000:25200, 12000:26433},
+    10: {19000:21600, 20000:20000, 21000:18600, 22000:17200, 23000:15900, 24000:14500, 25000:13100, 26000:11700, 20000:20000, 18000:21450, 16000:22950, 14000:24400, 12000:25750, 10000:26433},
+    15: {19000:20600, 20000:19000, 21000:17500, 22000:16000, 23000:14700, 24000:13300, 25000:11900, 26000:10400, 20000:19300, 18000:20650, 16000:22000, 14000:23450, 12000:24850, 10000:26433},
+    20: {19000:19400, 20000:17900, 21000:16300, 22000:14900, 23000:13200, 24000:11800, 25000:10400, 26000:8800, 18000:19900, 16000:21200, 14000:22500, 12000:23950, 10000:25300, 8000:26433},
+    25: {19000:18200, 20000:16600, 21000:15000, 22000:13500, 23000:12000, 24000:10400, 25000:8700, 26000:6900},
+    30: {19000:16400, 20000:14800, 21000:13200, 22000:11600, 23000:9900, 24000:8100, 25000:6400, 26000:4600}
 }
 
 # ────────────────────────────────────────────────
-# Helper to interpolate/extrapolate adjustment parameters
-# ────────────────────────────────────────────────
-def get_adjust_param(isa: float, param: str) -> float:
-    isas = sorted(adjust_params.keys())
-    if isa in adjust_params:
-        return adjust_params[isa][param]
-    idx = np.searchsorted(isas, isa)
-    if idx == 0:
-        diff = adjust_params[isas[1]][param] - adjust_params[isas[0]][param]
-        delta_isa = isas[1] - isas[0]
-        return adjust_params[isas[0]][param] + diff / delta_isa * (isa - isas[0])
-    elif idx == len(isas):
-        diff = adjust_params[isas[-1]][param] - adjust_params[isas[-2]][param]
-        delta_isa = isas[-1] - isas[-2]
-        return adjust_params[isas[-1]][param] + diff / delta_isa * (isa - isas[-1])
-    else:
-        frac = (isa - isas[idx-1]) / (isas[idx] - isas[idx-1])
-        return adjust_params[isas[idx-1]][param] + frac * (adjust_params[isas[idx]][param] - adjust_params[isas[idx-1]][param])
-
-# ────────────────────────────────────────────────
-# Calculation
+# Calculation with linear interpolation + structural cap
 # ────────────────────────────────────────────────
 @st.cache_data
 def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
@@ -80,61 +39,31 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     if fuel_burn < 0:
         return {"error": "Fuel burn cannot be negative"}
 
-    # Adjust MSA for clearance difference
     if msa > 6000:
         effective_msa = msa - 1000
     else:
         effective_msa = msa
 
-    # Structural cap logic for low MSA
+    # Structural cap for low MSA
     if effective_msa <= STRUCTURAL_MSA_THRESHOLD:
         w_obstacle_max = STRUCTURAL_MTOW
         source = "structural limit (low MSA)"
     else:
-        # Use curve fit
-        isa_clamp = np.clip(isa_dev, min(high_isa_grid), max(high_isa_grid))
-        source = "curve fit" if isa_dev == isa_clamp else f"curve fit (clamped ISA {isa_clamp}°C)"
+        # Find closest ISA
+        isas = sorted(all_points.keys())
+        closest_isa = min(isas, key=lambda x: abs(x - isa_dev))
+        source = f"linear interp (closest ISA {closest_isa}°C)"
 
-        points = {}
-
-        # Include low data if available
-        if isa_clamp in low_data:
-            points.update(low_data[isa_clamp])
-
-        # Include high-alt data
-        row_idx = np.where(high_isa_grid == isa_clamp)[0]
-        if len(row_idx) > 0:
-            for col_idx, msa_high in enumerate(high_msa_grid):
-                val = high_tow[row_idx[0], col_idx]
-                if msa_high in points:
-                    points[msa_high] = (points[msa_high] + val) / 2
-                else:
-                    points[msa_high] = val
-
-        if not points:
-            return {"error": "No data available for this ISA deviation"}
-
+        points = all_points[closest_isa]
         msas = sorted(points.keys())
-        weights = np.array([points[m] for m in msas])
-        fit = np.polyfit(msas, weights, deg=2)
-        poly = np.poly1d(fit)
+        weights = [points[m] for m in msas]
 
-        w_obstacle_max = poly(effective_msa)
+        if len(msas) < 2:
+            return {"error": "Insufficient data points for interpolation"}
 
-        # Apply correction
-        corr_slope = get_adjust_param(isa_clamp, 'slope')
-        corr_int = get_adjust_param(isa_clamp, 'intercept')
-        # correction = corr_slope * effective_msa + corr_int
-        # w_obstacle_max += correction
-        source += " (with test adjustment)"
-
-    # Boost for cold/low MSA to reach max gross
-    if isa_dev <= 0 and effective_msa < 12000:
-        w_obstacle_max = max(w_obstacle_max, STRUCTURAL_MTOW - 150)  # very close to max
-
-    # Pull-down for high MSA in cold
-    if isa_dev <= -5 and effective_msa > 18000:
-        w_obstacle_max = min(w_obstacle_max, 24000)
+        # Linear interpolation
+        interp_func = interp1d(msas, weights, kind='linear', fill_value="extrapolate")
+        w_obstacle_max = float(interp_func(effective_msa))
 
     w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
 
@@ -157,11 +86,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted + structural cap logic • Final correction tuning")
+st.caption("Linear interpolation from AFM table points + structural cap for low MSA")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Final tuning: milder correction for cold, stronger pull-up for warm high MSA.")
+    st.markdown("Enter values at the highest enroute obstacle. Switched to linear interpolation for better match to table values.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -190,14 +119,10 @@ if st.button("Calculate ZNTOL", type="primary"):
 
 with st.expander("Assumptions & Tuning"):
     st.markdown("""
-    - Quadratic curve fit to merged AFM data
-    - Explicit structural limit (26,433 lbs) for effective MSA ≤15,000 ft
-    - Correction recalibrated to your latest test data
-    - Boost for cold low-MSA cases
+    - Linear interpolation between known AFM table points (closest ISA used)
+    - Extrapolation for out-of-range MSA
+    - Structural limit (26,433 lbs) for effective MSA ≤15,000 ft
     - Effective MSA = entered - 1,000 ft if >6,000 ft
     """)
 
 st.caption("For reference only • Verify with official AFM")
-
-
-
