@@ -65,6 +65,13 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         interp_func = interp1d(msas, weights, kind='linear', fill_value="extrapolate")
         w_obstacle_max = float(interp_func(effective_msa))
 
+        # Cold/high MSA pull-down to match test data
+        if isa_dev <= 0 and effective_msa > 18000:
+            # Pull-down amount: linear from -1300 at ISA -10 to -0 at ISA 0
+            pull_down = max(0, -1300 * (isa_dev + 10) / 10)
+            w_obstacle_max -= pull_down
+            source += " + cold/high pull-down"
+
     w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
 
     zntol_uncapped = w_obstacle_max + fuel_burn
@@ -78,7 +85,6 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         "effective_msa": round(effective_msa),
         "error": None
     }
-
 
 # ────────────────────────────────────────────────
 # Streamlit UI
@@ -126,3 +132,4 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
