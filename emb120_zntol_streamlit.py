@@ -2,6 +2,8 @@
 # Linear interpolation from merged table points + structural cap
 
 import streamlit as st
+st.markdown("**DEBUG BUILD MARKER v3 - 2025-02-04**", unsafe_allow_html=True)
+st.markdown("If you see this red text, the latest code is LIVE.", unsafe_allow_html=True)
 import numpy as np
 from scipy.interpolate import interp1d
 
@@ -132,4 +134,5 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
 
