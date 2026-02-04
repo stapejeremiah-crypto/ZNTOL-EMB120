@@ -1,18 +1,16 @@
 # emb120_zntol_streamlit.py
-# Linear interpolation from merged table points + structural cap + cold/high pull-down
+# Linear interpolation + structural cap + stronger cold/high pull-down
 
 import streamlit as st
 import numpy as np
 from scipy.interpolate import interp1d
 
-# ────────────────────────────────────────────────
-# Constants and merged table data
-# ────────────────────────────────────────────────
+# Constants
 STRUCTURAL_MTOW = 26433
 MIN_MSA = 8000
-STRUCTURAL_MSA_THRESHOLD = 15000  # below this effective MSA → structural limit (26,433 lbs)
+STRUCTURAL_MSA_THRESHOLD = 15000
 
-# All known points: ISA → {MSA: weight}
+# Merged table: ISA → {MSA: weight}
 all_points = {
     -20: {m: 25000 for m in [19000,20000,21000,22000,23000,24000,25000,26000]},
     -15: {m: 25000 for m in [19000,20000,21000,22000,23000,24000,25000,26000]},
@@ -32,9 +30,7 @@ all_points = {
     30: {19000:16400, 20000:14800, 21000:13200, 22000:11600, 23000:9900, 24000:8100, 25000:6400, 26000:4600}
 }
 
-# ────────────────────────────────────────────────
-# Calculation function
-# ────────────────────────────────────────────────
+# Calculation
 @st.cache_data
 def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     if isa_dev < -20 or isa_dev > 30:
@@ -44,17 +40,12 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     if fuel_burn < 0:
         return {"error": "Fuel burn cannot be negative"}
 
-    if msa > 6000:
-        effective_msa = msa - 1000
-    else:
-        effective_msa = msa
+    effective_msa = msa - 1000 if msa > 6000 else msa
 
-    # Structural cap for low effective MSA
     if effective_msa <= STRUCTURAL_MSA_THRESHOLD:
         w_obstacle_max = STRUCTURAL_MTOW
         source = "structural limit (low MSA)"
     else:
-        # Find closest ISA
         isas = sorted(all_points.keys())
         closest_isa = min(isas, key=lambda x: abs(x - isa_dev))
         source = f"linear interp (closest ISA {closest_isa}°C)"
@@ -66,14 +57,12 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         if len(msas) < 2:
             return {"error": "Insufficient data points for interpolation"}
 
-        # Linear interpolation
         interp_func = interp1d(msas, weights, kind='linear', fill_value="extrapolate")
         w_obstacle_max = float(interp_func(effective_msa))
 
-        # Cold/high MSA pull-down to match test data
+        # Stronger cold/high MSA pull-down
         if isa_dev <= 0 and effective_msa > 18000:
-            # Pull-down amount: -1300 at ISA -10, linear to -0 at ISA 0
-            pull_down = max(0, -1300 * (isa_dev + 10) / 10)
+            pull_down = max(0, -2000 * (isa_dev + 10) / 10)  # -2000 at -10, -0 at 0
             w_obstacle_max -= pull_down
             source += " + cold/high pull-down"
 
@@ -91,28 +80,15 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         "error": None
     }
 
-
-# ────────────────────────────────────────────────
-# Streamlit UI
-# ────────────────────────────────────────────────
-st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
-
+# UI
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Linear interpolation from AFM table points + structural cap + cold/high pull-down")
-
-with st.sidebar:
-    st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Uses linear interpolation for accuracy, structural cap for low MSA, and targeted pull-down for cold/high cases.")
-    st.divider()
-    st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
+st.caption("Linear interpolation + structural cap + stronger cold/high pull-down")
 
 col1, col2 = st.columns(2)
-with col1:
-    isa_dev = st.number_input("ISA deviation (°C)", -30.0, 40.0, 0.0, 0.5, format="%.1f")
-with col2:
-    msa_ft = st.number_input("MSA (ft)", MIN_MSA, 30000, 15000, 100, format="%d")
+isa_dev = col1.number_input("ISA deviation (°C)", -30.0, 40.0, 0.0, 0.5)
+msa_ft = col2.number_input("MSA (ft)", MIN_MSA, 30000, 15000, 100)
 
-fuel_burn = st.number_input("Fuel burned to obstacle (lbs)", 0.0, 10000.0, 2000.0, 100.0, format="%.0f")
+fuel_burn = st.number_input("Fuel burned to obstacle (lbs)", 0.0, 10000.0, 2000.0, 100.0)
 
 if st.button("Calculate ZNTOL", type="primary"):
     res = calculate_zntol(isa_dev, msa_ft, fuel_burn)
@@ -129,13 +105,10 @@ if st.button("Calculate ZNTOL", type="primary"):
                       delta="capped" if res['capped'] else None)
             st.caption(f"Source: {res['source']}")
 
-with st.expander("Assumptions & Tuning"):
+with st.expander("Assumptions"):
     st.markdown("""
-    - Linear interpolation between known AFM table points (closest ISA used)
-    - Extrapolation for out-of-range MSA
+    - Linear interpolation from your provided AFM table points
     - Structural limit (26,433 lbs) for effective MSA ≤15,000 ft
-    - Targeted pull-down for cold/high MSA cases to match your test data
-    - Effective MSA = entered - 1,000 ft if >6,000 ft
+    - Strong pull-down for cold/high MSA cases to better match your test data
+    - Effective MSA = MSA - 1,000 ft if >6,000 ft
     """)
-
-st.caption("For reference only • Verify with official AFM")
