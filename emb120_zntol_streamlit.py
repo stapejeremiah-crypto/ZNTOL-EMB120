@@ -1,5 +1,6 @@
 # emb120_zntol_streamlit.py
 # Merged high + low MSA data from AFM tables for accurate interpolation
+# Added guideline: for MSA > 6000 ft, subtract 1000 ft for calculations (135.381 1000 ft clearance vs. flight plan 2000 ft)
 
 import streamlit as st
 import numpy as np
@@ -80,6 +81,12 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     if fuel_burn < 0:
         return {"error": "Fuel burn cannot be negative"}
 
+    # New guideline: Adjust MSA for clearance difference
+    if msa > 6000:
+        effective_msa = msa - 1000
+    else:
+        effective_msa = msa
+
     # Cold cap (from original table)
     if isa_dev <= -5:
         w_obstacle_max = 25000.0
@@ -88,7 +95,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         # Clamp ISA to available grid for interpolation
         isa_clamp = np.clip(isa_dev, min(ISA_GRID_FULL), max(ISA_GRID_FULL))
         spline = RectBivariateSpline(ISA_GRID_FULL, MSA_GRID_FULL, TOW_GRID_FULL, kx=1, ky=1)
-        w_obstacle_max = float(spline(isa_clamp, msa)[0, 0])
+        w_obstacle_max = float(spline(isa_clamp, effective_msa)[0, 0])
         source = "interpolated" if isa_dev == isa_clamp else f"clamped ISA {isa_clamp}°C"
 
     w_obstacle_max = min(w_obstacle_max, STRUCTURAL_MTOW)
@@ -101,21 +108,22 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         "zntol": round(zntol),
         "capped": zntol_uncapped > STRUCTURAL_MTOW,
         "source": source,
+        "effective_msa": round(effective_msa),
         "error": None
     }
 
 
 # ────────────────────────────────────────────────
-# Streamlit UI (same as before, minor updates)
+# Streamlit UI (updated with effective MSA display)
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Merged high/low MSA AFM data • Accurate down to 8,000 ft")
+st.caption("Merged high/low MSA AFM data • Accurate down to 8,000 ft • Adjusted for 1000 ft clearance guideline")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Now uses full AFM low-alt data for better accuracy below 19,000 ft.")
+    st.markdown("Enter values at the highest enroute obstacle. Now uses full AFM low-alt data for better accuracy below 19,000 ft. For MSA > 6000 ft, calculations use MSA - 1000 ft (135.381 1000 ft clearance vs. flight plan 2000 ft).")
 
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
@@ -124,7 +132,7 @@ col1, col2 = st.columns(2)
 with col1:
     isa_dev = st.number_input("ISA deviation (°C)", -30.0, 40.0, 0.0, 0.5, format="%.1f")
 with col2:
-    msa_ft = st.number_input("MSA (ft)", MIN_MSA, 30000, 15000, 500, format="%d")
+    msa_ft = st.number_input("MSA (ft)", MIN_MSA, 30000, 15000, 100, format="%d")  # step=100 for 100 ft increments
 
 fuel_burn = st.number_input("Fuel burned to obstacle (lbs)", 0.0, 10000.0, 2000.0, 100.0, format="%.0f")
 
@@ -135,6 +143,8 @@ if st.button("Calculate ZNTOL", type="primary"):
     else:
         st.success(f"**ZNTOL = {res['zntol']:,} lbs**")
         with st.expander("Details"):
+            st.metric("Entered MSA", f"{msa_ft:,} ft")
+            st.metric("Effective MSA used", f"{res['effective_msa']:,} ft")
             st.metric("Weight at obstacle", f"{res['w_obstacle_max']:,} lbs")
             st.metric("+ Fuel burn", f"+ {fuel_burn:,.0f} lbs")
             st.metric("Uncapped", f"{round(res['w_obstacle_max'] + fuel_burn):,} lbs",
@@ -145,6 +155,7 @@ with st.expander("Assumptions"):
     st.markdown("""
     - Merged original high-alt table + your low-alt screenshot data  
     - Bilinear interpolation; cold ISA ≤ -5 °C capped at 25,000 lbs  
+    - Effective MSA = entered MSA - 1000 ft if >6000 ft (for clearance adjustment)  
     - Structural MTOW cap = 26,433 lbs  
     - No wind/anti-ice/wet adjustments  
     """)
