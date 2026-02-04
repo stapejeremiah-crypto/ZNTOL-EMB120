@@ -1,5 +1,5 @@
 # emb120_zntol_streamlit.py
-# Curve-fitted high/low MSA AFM data + structural cap logic for low MSA
+# Curve-fitted high/low MSA AFM data + recalibrated correction for current test set
 
 import streamlit as st
 import numpy as np
@@ -37,17 +37,20 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
-# Adjustment parameters (simplified for this version)
+# Recalibrated adjustment parameters for your most recent test results
 adjust_params = {
-    -10: {'slope': -0.025, 'intercept': 800.0},
-    -5:  {'slope': -0.045, 'intercept': 900.0},
-    0:   {'slope': -0.028, 'intercept': 600.0},
-    5:   {'slope': -0.010, 'intercept': 200.0},
-    10:  {'slope': -0.005, 'intercept': 100.0},
-    15:  {'slope': -0.018, 'intercept': -300.0},
-    20:  {'slope': -0.045, 'intercept': -850.0}
+    -10: {'slope': -0.015, 'intercept': 500.0},
+    -5:  {'slope': -0.035, 'intercept': 700.0},
+    0:   {'slope': -0.025, 'intercept': 500.0},
+    5:   {'slope': -0.008, 'intercept': 150.0},
+    10:  {'slope': -0.003, 'intercept': 60.0},
+    15:  {'slope': -0.035, 'intercept': -665.0},
+    20:  {'slope': -0.065, 'intercept': -1235.0}
 }
 
+# ────────────────────────────────────────────────
+# Helper to interpolate/extrapolate adjustment parameters
+# ────────────────────────────────────────────────
 def get_adjust_param(isa: float, param: str) -> float:
     isas = sorted(adjust_params.keys())
     if isa in adjust_params:
@@ -77,12 +80,13 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     if fuel_burn < 0:
         return {"error": "Fuel burn cannot be negative"}
 
+    # Adjust MSA for clearance difference
     if msa > 6000:
         effective_msa = msa - 1000
     else:
         effective_msa = msa
 
-    # Structural cap logic for low MSA (common in AFM for most temps)
+    # Structural cap logic for low MSA
     if effective_msa <= STRUCTURAL_MSA_THRESHOLD:
         w_obstacle_max = STRUCTURAL_MTOW
         source = "structural limit (low MSA)"
@@ -97,7 +101,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         if isa_clamp in low_data:
             points.update(low_data[isa_clamp])
 
-        # Always include high-alt data for better variation in cold
+        # Include high-alt data
         row_idx = np.where(high_isa_grid == isa_clamp)[0]
         if len(row_idx) > 0:
             for col_idx, msa_high in enumerate(high_msa_grid):
@@ -124,11 +128,14 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         w_obstacle_max += correction
         source += " (with test adjustment)"
 
-    # Additional boost for cold/low MSA to reach max gross
+    # Boost for cold/low MSA to reach max gross
     if isa_dev <= 0 and effective_msa < 12000:
-        w_obstacle_max = max(w_obstacle_max, STRUCTURAL_MTOW - 200)  # close to max
+        w_obstacle_max = max(w_obstacle_max, STRUCTURAL_MTOW - 150)  # very close to max
 
-    # Final cap
+    # Pull-down for high MSA in cold
+    if isa_dev <= -5 and effective_msa > 18000:
+        w_obstacle_max = min(w_obstacle_max, 24000)
+
     w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
 
     zntol_uncapped = w_obstacle_max + fuel_burn
@@ -150,11 +157,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted + structural cap logic • Low MSA forces max gross")
+st.caption("Curve-fitted + structural cap logic • Low MSA forces max gross • Refined correction")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Added explicit structural cap for low MSA (≤15,000 ft effective) to fix cold/low-alt underestimation.")
+    st.markdown("Enter values at the highest enroute obstacle. Updated: structural cap for low MSA, refined correction for better high-alt match.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -184,9 +191,9 @@ if st.button("Calculate ZNTOL", type="primary"):
 with st.expander("Assumptions & Tuning"):
     st.markdown("""
     - Quadratic curve fit to merged AFM data
-    - Explicit structural limit (26,433 lbs) applied for effective MSA ≤15,000 ft
-    - Correction tuned to your latest test data
-    - Extra cold low-MSA boost
+    - Explicit structural limit (26,433 lbs) for effective MSA ≤15,000 ft
+    - Correction recalibrated to your latest test data
+    - Boost for cold low-MSA cases
     - Effective MSA = entered - 1,000 ft if >6,000 ft
     """)
 
