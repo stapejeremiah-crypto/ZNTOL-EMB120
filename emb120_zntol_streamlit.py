@@ -1,9 +1,7 @@
 # emb120_zntol_streamlit.py
-# Linear interpolation from merged table points + structural cap
+# Linear interpolation from merged table points + structural cap + cold/high pull-down
 
 import streamlit as st
-st.markdown("**DEBUG BUILD MARKER v3 - 2025-02-04**", unsafe_allow_html=True)
-st.markdown("If you see this red text, the latest code is LIVE.", unsafe_allow_html=True)
 import numpy as np
 from scipy.interpolate import interp1d
 
@@ -30,7 +28,7 @@ all_points = {
 }
 
 # ────────────────────────────────────────────────
-# Calculation with linear interpolation + structural cap
+# Calculation
 # ────────────────────────────────────────────────
 @st.cache_data
 def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
@@ -69,7 +67,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 
         # Cold/high MSA pull-down to match test data
         if isa_dev <= 0 and effective_msa > 18000:
-            # Pull-down amount: linear from -1300 at ISA -10 to -0 at ISA 0
+            # Pull-down amount: -1300 at ISA -10, linear to -0 at ISA 0
             pull_down = max(0, -1300 * (isa_dev + 10) / 10)
             w_obstacle_max -= pull_down
             source += " + cold/high pull-down"
@@ -88,17 +86,18 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         "error": None
     }
 
+
 # ────────────────────────────────────────────────
 # Streamlit UI
 # ────────────────────────────────────────────────
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Linear interpolation from AFM table points + structural cap for low MSA")
+st.caption("Linear interpolation from AFM table points + structural cap + cold/high pull-down")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Switched to linear interpolation for better match to table values.")
+    st.markdown("Enter values at the highest enroute obstacle. Uses linear interpolation for accuracy, structural cap for low MSA, and targeted pull-down for cold/high cases.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -130,9 +129,8 @@ with st.expander("Assumptions & Tuning"):
     - Linear interpolation between known AFM table points (closest ISA used)
     - Extrapolation for out-of-range MSA
     - Structural limit (26,433 lbs) for effective MSA ≤15,000 ft
+    - Targeted pull-down for cold/high MSA cases to match your test data
     - Effective MSA = entered - 1,000 ft if >6,000 ft
     """)
 
 st.caption("For reference only • Verify with official AFM")
-
-
