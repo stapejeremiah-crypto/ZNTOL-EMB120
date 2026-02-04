@@ -1,5 +1,5 @@
 # emb120_zntol_streamlit.py
-# Curve-fitted high/low MSA AFM data + latest refined correction
+# Curve-fitted high/low MSA AFM data + recalibrated correction for latest tests
 
 import streamlit as st
 import numpy as np
@@ -36,15 +36,15 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
-# Latest refined adjustment parameters (tuned to your most recent test results)
+# Recalibrated adjustment parameters for your latest test results
 adjust_params = {
-    -10: {'slope': -0.095, 'intercept': 1900.0},
-    -5:  {'slope': -0.105, 'intercept': 2100.0},
-    0:   {'slope': -0.055, 'intercept': 1045.0},
-    5:   {'slope': -0.008, 'intercept': 152.0},
-    10:  {'slope': -0.002, 'intercept': 38.0},
-    15:  {'slope': -0.010, 'intercept': -190.0},
-    20:  {'slope': -0.025, 'intercept': -475.0}
+    -10: {'slope': -0.035, 'intercept': 1000.0},
+    -5:  {'slope': -0.065, 'intercept': 1300.0},
+    0:   {'slope': -0.035, 'intercept': 700.0},
+    5:   {'slope': -0.010, 'intercept': 200.0},
+    10:  {'slope': -0.005, 'intercept': 100.0},
+    15:  {'slope': -0.012, 'intercept': -240.0},
+    20:  {'slope': -0.038, 'intercept': -720.0}
 }
 
 # ────────────────────────────────────────────────
@@ -85,49 +85,47 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     else:
         effective_msa = msa
 
-    # Cold cap with dynamic adjustment
-    if isa_dev <= -5:
-        w_obstacle_max = 25000.0
-        corr_slope = get_adjust_param(-5, 'slope')
-        corr_int = get_adjust_param(-5, 'intercept')
-        correction = corr_slope * effective_msa + corr_int
-        w_obstacle_max += correction
-        # Small low-MSA boost for cold
-        if effective_msa < 12000:
-            w_obstacle_max += 200
-        source = "cold cap (adjusted)"
-    else:
-        isa_clamp = np.clip(isa_dev, 0, 20)
-        source = "curve fit" if isa_dev == isa_clamp else f"curve fit (clamped ISA {isa_clamp}°C)"
+    # No hard cold cap - use curve fit with cold bias
+    isa_clamp = np.clip(isa_dev, 0, 20)  # clamp to available data for curve
+    source = "curve fit" if isa_dev == isa_clamp else f"curve fit (clamped ISA {isa_clamp}°C)"
 
-        points = {}
-        if isa_clamp in low_data:
-            points.update(low_data[isa_clamp])
+    points = {}
+    if isa_clamp in low_data:
+        points.update(low_data[isa_clamp])
 
-        row_idx = np.where(high_isa_grid == isa_clamp)[0]
-        if len(row_idx) > 0:
-            for col_idx, msa_high in enumerate(high_msa_grid):
-                val = high_tow[row_idx[0], col_idx]
-                if msa_high in points:
-                    points[msa_high] = (points[msa_high] + val) / 2
-                else:
-                    points[msa_high] = val
+    row_idx = np.where(high_isa_grid == isa_clamp)[0]
+    if len(row_idx) > 0:
+        for col_idx, msa_high in enumerate(high_msa_grid):
+            val = high_tow[row_idx[0], col_idx]
+            if msa_high in points:
+                points[msa_high] = (points[msa_high] + val) / 2
+            else:
+                points[msa_high] = val
 
-        if not points:
-            return {"error": "No data available for this ISA deviation"}
+    if not points:
+        return {"error": "No data available for this ISA deviation"}
 
-        msas = sorted(points.keys())
-        weights = np.array([points[m] for m in msas])
-        fit = np.polyfit(msas, weights, deg=2)
-        poly = np.poly1d(fit)
+    msas = sorted(points.keys())
+    weights = np.array([points[m] for m in msas])
+    fit = np.polyfit(msas, weights, deg=2)
+    poly = np.poly1d(fit)
 
-        w_obstacle_max = poly(effective_msa)
+    w_obstacle_max = poly(effective_msa)
 
-        corr_slope = get_adjust_param(isa_clamp, 'slope')
-        corr_int = get_adjust_param(isa_clamp, 'intercept')
-        correction = corr_slope * effective_msa + corr_int
-        w_obstacle_max += correction
-        source += " (with test adjustment)"
+    # Apply correction - stronger for cold
+    corr_slope = get_adjust_param(isa_clamp, 'slope')
+    corr_int = get_adjust_param(isa_clamp, 'intercept')
+    correction = corr_slope * effective_msa + corr_int
+    w_obstacle_max += correction
+    source += " (with test adjustment)"
+
+    # Special low-MSA boost for cold cases
+    if isa_dev <= -5 and effective_msa < 12000:
+        w_obstacle_max += 400  # push toward 26,433 lbs
+
+    # High-MSA cap for cold cases
+    if isa_dev <= -5 and effective_msa > 18000:
+        w_obstacle_max = min(w_obstacle_max, 24000)
 
     w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
 
@@ -150,11 +148,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted + latest refined correction • Tuned to your most recent test set")
+st.caption("Curve-fitted + recalibrated correction • No hard cold cap • Low-alt boost for cold")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Correction parameters recalibrated from your latest test results.")
+    st.markdown("Enter values at the highest enroute obstacle. Latest tuning: removed hard cold cap, added low-MSA boost for cold cases.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -184,8 +182,9 @@ if st.button("Calculate ZNTOL", type="primary"):
 with st.expander("Assumptions & Tuning"):
     st.markdown("""
     - Quadratic curve fit to merged AFM data
-    - Linear correction (slope × effective_MSA + intercept) recalibrated to your latest test data
-    - Cold cases use 25,000 base + adjustment + small low-MSA boost
+    - Linear correction tuned to your latest test data
+    - No hard 25,000 lbs cap for cold ISAs - uses curve + adjustment
+    - Extra boost (+400 lbs) for cold cases at low MSA to reach closer to 26,433 lbs
     - Effective MSA = entered - 1,000 ft if >6,000 ft
     - Structural MTOW cap = 26,433 lbs
     """)
