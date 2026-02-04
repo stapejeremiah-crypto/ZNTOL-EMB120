@@ -37,7 +37,7 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
-# Final recalibrated adjustment parameters for your latest test results
+# FINAL recalibrated adjustment parameters (milder for cold, stronger for warm)
 adjust_params = {
     -10: {'slope': -0.008, 'intercept': 350.0},
     -5:  {'slope': -0.020, 'intercept': 700.0},
@@ -161,7 +161,7 @@ st.caption("Curve-fitted + structural cap logic • Final correction tuning")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Final tuning: stronger pull-up for warm high MSA, milder for cold.")
+    st.markdown("Enter values at the highest enroute obstacle. Final tuning: milder correction for cold, stronger pull-up for warm high MSA.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
