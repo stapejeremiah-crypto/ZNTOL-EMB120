@@ -1,5 +1,5 @@
 # emb120_zntol_streamlit.py
-# Curve-fitted high/low MSA AFM data + refined test-data-based correction
+# Curve-fitted high/low MSA AFM data + further refined test-data-based correction
 
 import streamlit as st
 import numpy as np
@@ -36,15 +36,15 @@ high_tow = np.array([
     [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 ])
 
-# Refined adjustment parameters per ISA (tuned to your latest test results)
+# Refined adjustment parameters (tuned to your latest test results)
 adjust_params = {
-    -10: {'slope': -0.050, 'intercept': 1371.0},
-    -5:  {'slope': -0.140, 'intercept': 2863.0},
-    0:   {'slope': -0.040, 'intercept': 1108.0},
-    5:   {'slope': -0.005, 'intercept': 127.0},
-    10:  {'slope': 0.000, 'intercept': 0.0},
-    15:  {'slope': 0.000, 'intercept': 8.0},
-    20:  {'slope': 0.000, 'intercept': 49.0}
+    -10: {'slope': -0.085, 'intercept': 1700.0},
+    -5:  {'slope': -0.120, 'intercept': 2400.0},
+    0:   {'slope': -0.045, 'intercept': 950.0},
+    5:   {'slope': 0.000, 'intercept': 0.0},
+    10:  {'slope': 0.000, 'intercept': -20.0},
+    15:  {'slope': 0.015, 'intercept': -285.0},
+    20:  {'slope': 0.030, 'intercept': -580.0}
 }
 
 # ────────────────────────────────────────────────
@@ -87,12 +87,15 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 
     # Cold cap with dynamic adjustment
     if isa_dev <= -5:
-        w_obstacle_max = 25000.0  # base
+        w_obstacle_max = 26000.0 if effective_msa < 15000 else 25000.0  # higher base for low MSA
         corr_slope = get_adjust_param(-5, 'slope')
         corr_int = get_adjust_param(-5, 'intercept')
         correction = corr_slope * effective_msa + corr_int
         w_obstacle_max += correction
-        source = "cold cap (with test adjustment)"
+        # Extra floor for high MSA cold cases
+        if effective_msa > 18000:
+            w_obstacle_max = min(w_obstacle_max, 24000)
+        source = "cold cap (adjusted)"
     else:
         isa_clamp = np.clip(isa_dev, 0, 20)
         source = "curve fit" if isa_dev == isa_clamp else f"curve fit (clamped ISA {isa_clamp}°C)"
@@ -147,11 +150,11 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Curve-fitted + refined test-data correction • High accuracy match to your AFM tests")
+st.caption("Curve-fitted + latest-test tuned correction • Improved cold/high-alt match")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle. Tuned to your latest test data for close AFM alignment.")
+    st.markdown("Enter values at the highest enroute obstacle. Refined tuning based on your latest test results.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
@@ -181,10 +184,9 @@ if st.button("Calculate ZNTOL", type="primary"):
 with st.expander("Assumptions & Tuning"):
     st.markdown("""
     - Quadratic curve fit to merged AFM data
-    - Linear correction tuned to your test results (slope × effective_MSA + intercept)
-    - Correction interpolated for non-tested ISAs
+    - Linear correction (slope × effective_MSA + intercept) refined to your latest test data
+    - Cold cases use higher base (26,000 lbs) at low MSA + adjustment
     - Effective MSA = entered - 1,000 ft if >6,000 ft
-    - Cold cases use dynamic adjustment from ISA -5 params
     - Structural MTOW cap = 26,433 lbs
     """)
 
