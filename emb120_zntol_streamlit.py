@@ -81,15 +81,14 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 
     effective_msa = msa - 1000 if msa > 6000 else msa
 
-    # Temperature-dependent structural cap with blend zone
+    # Temperature-dependent structural cap with smooth blend zone
     if effective_msa <= STRUCTURAL_MSA_THRESHOLD:
         if isa_dev <= 0:
             w_obstacle_max = STRUCTURAL_MTOW
             source = "structural limit (cold/low MSA)"
-        elif isa_dev <= 5:
-            # Linear blend between full cap at 0 °C and interpolated at 5 °C
+        elif isa_dev <= 7:  # Blend zone: 0 to 7 °C
             interp_value = spline(isa_dev, effective_msa)[0, 0]
-            frac = (isa_dev - 0) / 5
+            frac = (isa_dev - 0) / 7.0
             w_obstacle_max = STRUCTURAL_MTOW * (1 - frac) + interp_value * frac
             source = "structural blend (low MSA)"
         else:
@@ -168,6 +167,7 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
 
 
 
