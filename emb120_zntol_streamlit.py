@@ -1,32 +1,70 @@
+# emb120_zntol_streamlit.py
+# 2D linear interpolation over ISA and MSA + structural cap + cold/high pull-down
+
 import streamlit as st
 import numpy as np
-from scipy.interpolate import interp1d
-from scipy.ndimage import generic_filter
+from scipy.interpolate import RectBivariateSpline
 
 # Constants
 STRUCTURAL_MTOW = 26433
 MIN_MSA = 8000
 STRUCTURAL_MSA_THRESHOLD = 15000
+HIGH_MSA_PULLDOWN_THRESHOLD = 18000
 
-# Merged table data (your high-alt + low-alt data)
-all_points = {
-    -20: {19000:25000, 20000:25000, 21000:24400, 22000:23200, 23000:21900, 24000:20600, 25000:19400, 26000:18000},
-    -15: {19000:25000, 20000:25000, 21000:23600, 22000:22200, 23000:20900, 24000:19600, 25000:18400, 26000:17100},
-    -10: {19000:25000, 20000:24100, 21000:22600, 22000:21300, 23000:19900, 24000:18600, 25000:17400, 26000:16100},
-    -5:  {19000:24600, 20000:23100, 21000:21700, 22000:20300, 23000:19000, 24000:17700, 25000:16400, 26000:15100},
-    0:   {19000:23600, 20000:22200, 21000:20800, 22000:19400, 23000:18000, 24000:16700, 25000:15400, 26000:14100,
-          23000:19350, 22000:20100, 20000:21550, 18000:23000, 16000:24550},
-    5:   {19000:22600, 20000:21100, 21000:19700, 22000:18300, 23000:17000, 24000:15700, 25000:14300, 26000:13000,
-          22000:19350, 20000:20750, 18000:22200, 16000:23700, 14000:25200, 12000:26433},
-    10:  {19000:21600, 20000:20000, 21000:18600, 22000:17200, 23000:15900, 24000:14500, 25000:13100, 26000:11700,
-          20000:20000, 18000:21450, 16000:22950, 14000:24400, 12000:25750, 10000:26433},
-    15:  {19000:20600, 20000:19000, 21000:17500, 22000:16000, 23000:14700, 24000:13300, 25000:11900, 26000:10400,
-          20000:19300, 18000:20650, 16000:22000, 14000:23450, 12000:24850, 10000:26433},
-    20:  {19000:19400, 20000:17900, 21000:16300, 22000:14900, 23000:13200, 24000:11800, 25000:10400, 26000:8800,
-          18000:19900, 16000:21200, 14000:22500, 12000:23950, 10000:25300, 8000:26433},
-    25:  {19000:18200, 20000:16600, 21000:15000, 22000:13500, 23000:12000, 24000:10400, 25000:8700, 26000:6900},
-    30:  {19000:16400, 20000:14800, 21000:13200, 22000:11600, 23000:9900, 24000:8100, 25000:6400, 26000:4600}
+# ISA and MSA grids
+isa_grid = np.array([-20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30])
+msa_grid = np.array([
+    8000, 10000, 12000, 14000, 16000, 18000, 19000, 20000, 21000, 22000, 23000, 24000, 25000, 26000
+])
+
+# Weight grid (rows: ISA, columns: MSA)
+weight_grid = np.full((len(isa_grid), len(msa_grid)), np.nan)
+
+# Fill from high-alt data
+high_data = {
+    -20: [25000, 25000, 24400, 23200, 21900, 20600, 19400, 18000],
+    -15: [25000, 25000, 23600, 22200, 20900, 19600, 18400, 17100],
+    -10: [25000, 24100, 22600, 21300, 19900, 18600, 17400, 16100],
+    -5: [24600, 23100, 21700, 20300, 19000, 17700, 16400, 15100],
+    0: [23600, 22200, 20800, 19400, 18000, 16700, 15400, 14100],
+    5: [22600, 21100, 19700, 18300, 17000, 15700, 14300, 13000],
+    10: [21600, 20000, 18600, 17200, 15900, 14500, 13100, 11700],
+    15: [20600, 19000, 17500, 16000, 14700, 13300, 11900, 10400],
+    20: [19400, 17900, 16300, 14900, 13200, 11800, 10400, 8800],
+    25: [18200, 16600, 15000, 13500, 12000, 10400, 8700, 6900],
+    30: [16400, 14800, 13200, 11600, 9900, 8100, 6400, 4600]
 }
+
+high_msa_indices = np.where(msa_grid >= 19000)[0]  # indices for 19000 to 26000
+for i, isa in enumerate(isa_grid):
+    if isa in high_data:
+        weight_grid[i, high_msa_indices] = high_data[isa]
+
+# Fill from low-alt data (overrides)
+low_data = {
+    0: {23000:19350, 22000:20100, 20000:21550, 18000:23000, 16000:24550},
+    5: {22000:19350, 20000:20750, 18000:22200, 16000:23700, 14000:25200, 12000:26433},
+    10: {20000:20000, 18000:21450, 16000:22950, 14000:24400, 12000:25750, 10000:26433},
+    15: {20000:19300, 18000:20650, 16000:22000, 14000:23450, 12000:24850, 10000:26433},
+    20: {18000:19900, 16000:21200, 14000:22500, 12000:23950, 10000:25300, 8000:26433}
+}
+
+for isa, data in low_data.items():
+    i = np.where(isa_grid == isa)[0][0]
+    for msa, val in data.items():
+        j = np.where(msa_grid == msa)[0][0]
+        weight_grid[i, j] = val
+
+# Fill NaNs row-wise with linear interpolation
+for i in range(len(isa_grid)):
+    row = weight_grid[i]
+    non_nan = np.isfinite(row)
+    if non_nan.any():
+        interp = interp1d(msa_grid[non_nan], row[non_nan], kind='linear', fill_value="extrapolate")
+        weight_grid[i] = interp(msa_grid)
+
+# 2D spline (linear kx=1, ky=1 for incremental changes)
+spline = RectBivariateSpline(isa_grid, msa_grid, weight_grid, kx=1, ky=1)
 
 # ────────────────────────────────────────────────
 # Calculation
@@ -47,27 +85,15 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         w_obstacle_max = STRUCTURAL_MTOW
         source = "structural limit (low MSA)"
     else:
-        # Find closest ISA
-        isas = sorted(all_points.keys())
-        closest_isa = min(isas, key=lambda x: abs(x - isa_dev))
-        source = f"linear interp (closest ISA {closest_isa}°C)"
+        # 2D spline interpolation
+        w_obstacle_max = spline(isa_dev, effective_msa)[0, 0]
+        source = "2D linear interpolation"
 
-        points = all_points[closest_isa]
-        msas = sorted(points.keys())
-        weights = [points[m] for m in msas]
-
-        if len(msas) < 2:
-            w_obstacle_max = STRUCTURAL_MTOW
-            source += " (fallback - insufficient points)"
-        else:
-            interp_func = interp1d(msas, weights, kind='linear', fill_value="extrapolate")
-            w_obstacle_max = float(interp_func(effective_msa))
-
-            # Cold/high MSA pull-down
-            if isa_dev <= 0 and effective_msa > 18000:
-                pull_down = max(0, -1300 * (isa_dev + 10) / 10)
-                w_obstacle_max -= pull_down
-                source += " + cold/high pull-down"
+        # Tuned cold/high MSA pull-down
+        if isa_dev <= 0 and effective_msa > 18000:
+            pull_down = max(0, -1500 * (isa_dev + 10) / 10)
+            w_obstacle_max -= pull_down
+            source += " + cold/high pull-down"
 
     w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
 
@@ -90,19 +116,19 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 st.set_page_config(page_title="EMB-120 ZNTOL Calculator", layout="centered")
 
 st.title("EMB-120 Zero-Net Takeoff Limit (ZNTOL) Calculator")
-st.caption("Linear interpolation from merged table + structural cap + cold/high pull-down")
+st.caption("2D linear interpolation over ISA and MSA + structural cap + cold/high pull-down")
 
 with st.sidebar:
     st.header("Instructions")
-    st.markdown("Enter values at the highest enroute obstacle.")
+    st.markdown("Enter values at the highest enroute obstacle. Uses 2D interpolation for incremental changes in ISA and MSA.")
     st.divider()
     st.info("Cross-check with AFM. Structural cap 26,433 lbs applied.")
 
 col1, col2 = st.columns(2)
 with col1:
-    isa_dev = st.number_input("ISA deviation (°C)", -30.0, 40.0, 0.0, 0.5, format="%.1f")
+    isa_dev = st.number_input("ISA deviation (°C)", -30.0, 40.0, 0.0, 0.1, format="%.1f")  # 0.1 step for fine ISA
 with col2:
-    msa_ft = st.number_input("MSA (ft)", MIN_MSA, 30000, 15000, 100, format="%d")
+    msa_ft = st.number_input("MSA (ft)", MIN_MSA, 30000, 15000, 100, format="%d")  # 100 ft step
 
 fuel_burn = st.number_input("Fuel burned to obstacle (lbs)", 0.0, 10000.0, 2000.0, 100.0, format="%.0f")
 
@@ -121,12 +147,12 @@ if st.button("Calculate ZNTOL", type="primary"):
                       delta="capped" if res['capped'] else None)
             st.caption(f"Source: {res['source']}")
 
-with st.expander("Assumptions"):
+with st.expander("Assumptions & Tuning"):
     st.markdown("""
-    - Linear interpolation between known AFM table points (closest ISA used)
-    - Extrapolation for out-of-range MSA
+    - 2D linear interpolation (RectBivariateSpline) over ISA and MSA grids from your data
+    - Grid NaNs filled row-wise with linear interpolation
     - Structural limit (26,433 lbs) for effective MSA ≤15,000 ft
-    - Targeted pull-down for cold/high MSA cases to match your test data
+    - Tuned pull-down for cold/high MSA cases to match your test data
     - Effective MSA = entered - 1,000 ft if >6,000 ft
     """)
 
