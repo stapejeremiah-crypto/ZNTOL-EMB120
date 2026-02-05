@@ -4,6 +4,7 @@
 import streamlit as st
 import numpy as np
 from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import interp1d
 
 # Constants
 STRUCTURAL_MTOW = 26433
@@ -157,3 +158,4 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
