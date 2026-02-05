@@ -81,17 +81,18 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 
     effective_msa = msa - 1000 if msa > 6000 else msa
 
-    # Structural cap for low effective MSA
-    if effective_msa <= STRUCTURAL_MSA_THRESHOLD:
+    # Temperature-dependent structural cap
+    # Apply full cap only for cold ISAs at low effective MSA
+    if effective_msa <= STRUCTURAL_MSA_THRESHOLD and isa_dev <= 5:  # adjust threshold to +5 if needed
         w_obstacle_max = STRUCTURAL_MTOW
-        source = "structural limit (low MSA)"
+        source = "structural limit (cold/low MSA)"
     else:
         # 2D spline interpolation
         w_obstacle_max = spline(isa_dev, effective_msa)[0, 0]
         source = "2D linear interpolation"
 
-        # Tuned cold/high MSA pull-down
-        if isa_dev <= 0 and effective_msa > 18000:
+        # Tuned cold/high MSA pull-down (only for colder cases)
+        if isa_dev <= 0 and effective_msa > HIGH_MSA_PULLDOWN_THRESHOLD:
             pull_down = max(0, -1500 * (isa_dev + 10) / 10)
             w_obstacle_max -= pull_down
             source += " + cold/high pull-down"
@@ -158,4 +159,5 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
 
