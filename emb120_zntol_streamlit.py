@@ -92,7 +92,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
             frac = (isa_dev - 0) / 5.0
             # Steeper initial drop: use quadratic blend for first 2 °C
             if isa_dev <= 2:
-                frac = frac ** 1.5  # accelerates drop early (try 1.3–1.8 if needed)
+                frac = frac ** 1.8  # accelerates drop early (try 1.3–1.8 if needed)
             w_obstacle_max = STRUCTURAL_MTOW * (1 - frac) + interp_value * frac
             source = "structural blend (low MSA)"
         else:
@@ -169,6 +169,7 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
 
 
 
