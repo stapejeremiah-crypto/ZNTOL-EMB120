@@ -76,35 +76,57 @@ spline = RectBivariateSpline(isa_grid, msa_grid, weight_grid, kx=1, ky=1)
 @st.cache_data
 def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
     if isa_dev < -20 or isa_dev > 30:
-        return {"error": "ISA deviation out of range"}
+        return {"error": "ISA deviation out of range (-20 to +30 °C)"}
     if msa < MIN_MSA or msa > 26000:
-        return {"error": "MSA out of range"}
+        return {"error": f"MSA out of range ({MIN_MSA:,}–26,000 ft)"}
+    if fuel_burn < 0:
+        return {"error": "Fuel burn cannot be negative"}
 
     effective_msa = msa - 1000 if msa > 6000 else msa
 
+    # Initialize to avoid UnboundLocalError
+    w_obstacle_max = STRUCTURAL_MTOW  # safe default
+    source = "unknown"
+
     if effective_msa <= STRUCTURAL_MSA_THRESHOLD:
-        w_obstacle = STRUCTURAL_MTOW
+        w_obstacle_max = STRUCTURAL_MTOW
         source = "structural limit (low MSA)"
     else:
-        # 2D interpolation (smooth across both ISA and MSA)
-        w_obstacle_max = spline(isa_dev, effective_msa)[0, 0]  # extract the single scalar
-        source = "2D spline interpolation"
+        # Find closest ISA
+        isas = sorted(all_points.keys())
+        closest_isa = min(isas, key=lambda x: abs(x - isa_dev))
+        source = f"linear interp (closest ISA {closest_isa}°C)"
 
-    # Cold/high MSA pull-down (tuned to your test)
-    if isa_dev <= 0 and effective_msa > 18000:
-        pull_down = max(0, -1500 * (isa_dev + 10) / 10)
-        w_obstacle -= pull_down
-        source += " + cold/high pull-down"
+        points = all_points[closest_isa]
+        msas = sorted(points.keys())
+        weights = [points[m] for m in msas]
 
-    w_obstacle = min(max(w_obstacle, 4600), STRUCTURAL_MTOW)
+        if len(msas) < 2:
+            # Fallback instead of error
+            w_obstacle_max = STRUCTURAL_MTOW
+            source += " (fallback - insufficient points)"
+        else:
+            interp_func = interp1d(msas, weights, kind='linear', fill_value="extrapolate")
+            w_obstacle_max = float(interp_func(effective_msa))
 
-    zntol = min(w_obstacle + fuel_burn, STRUCTURAL_MTOW)
+            # Cold/high MSA pull-down
+            if isa_dev <= 0 and effective_msa > 18000:
+                pull_down = max(0, -1500 * (isa_dev + 10) / 10)
+                w_obstacle_max -= pull_down
+                source += " + cold/high pull-down"
+
+    w_obstacle_max = min(max(w_obstacle_max, 4600), STRUCTURAL_MTOW)
+
+    zntol_uncapped = w_obstacle_max + fuel_burn
+    zntol = min(zntol_uncapped, STRUCTURAL_MTOW)
 
     return {
-        "w_obstacle": round(w_obstacle),
+        "w_obstacle_max": round(w_obstacle_max),
         "zntol": round(zntol),
+        "capped": zntol_uncapped > STRUCTURAL_MTOW,
         "source": source,
-        "effective_msa": round(effective_msa)
+        "effective_msa": round(effective_msa),
+        "error": None
     }
 
 # UI
@@ -126,4 +148,5 @@ if st.button("Calculate ZNTOL", type="primary"):
         st.metric("Source", res['source'])
 
 st.caption("For reference only • Verify with official AFM")
+
 
