@@ -83,7 +83,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
 
     # Temperature-dependent structural cap
     # Apply full cap only for cold ISAs at low effective MSA
-    if effective_msa <= STRUCTURAL_MSA_THRESHOLD and isa_dev <= 5:  # adjust threshold to +5 if needed
+    if effective_msa <= STRUCTURAL_MSA_THRESHOLD and isa_dev <= 0:  # adjust threshold to +5 if needed
         w_obstacle_max = STRUCTURAL_MTOW
         source = "structural limit (cold/low MSA)"
     else:
@@ -159,5 +159,6 @@ with st.expander("Assumptions & Tuning"):
     """)
 
 st.caption("For reference only • Verify with official AFM")
+
 
 
