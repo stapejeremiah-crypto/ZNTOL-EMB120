@@ -87,7 +87,7 @@ def calculate_zntol(isa_dev: float, msa: float, fuel_burn: float) -> dict:
         source = "structural limit (low MSA)"
     else:
         # 2D interpolation (smooth across both ISA and MSA)
-        w_obstacle = float(spline(isa_dev, effective_msa))
+        w_obstacle_max = spline(isa_dev, effective_msa)[0, 0]  # extract the single scalar
         source = "2D spline interpolation"
 
     # Cold/high MSA pull-down (tuned to your test)
@@ -126,3 +126,4 @@ if st.button("Calculate ZNTOL", type="primary"):
         st.metric("Source", res['source'])
 
 st.caption("For reference only • Verify with official AFM")
+
